@@ -1,1 +1,458 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <windows.h>
 
+// 定义进程结构体
+typedef struct PCB {
+    char PCB_NAME[5]; // 进程名
+    int PCB_STATUS; // 进程状态，0表示等待态，1表示就绪态
+    int PCB_PRIORITY; // 优先级，1~10，数值越大，优先级越高
+    int PCB_EXECUTE_TIME; // 需要在处理机上执行的时间(ms)
+    struct PCB* next; // 队列指针
+} PCB;
+
+// 定义全局变量
+PCB* ready_queue = NULL; // 就绪队列
+PCB* wait_queue = NULL; // 等待队列
+int total_time = 0; // 总执行时间
+
+// 创建PCB
+PCB* create_pcb(int i) {
+    PCB* p = (PCB*)malloc(sizeof(PCB));
+    sprintf(p->PCB_NAME, "P%d", i + 1);
+    p->PCB_STATUS = rand() % 2; // 随机产生进程的状态: 0-等待态，1-就绪态
+    p->PCB_PRIORITY = rand() % 10 + 1; // 随机产生进程的优先级
+    p->PCB_EXECUTE_TIME = rand() % 1000 + 500; // 随机产生进程需要执行的时间(500-1500ms)
+    p->next = NULL; // 初始化队列指针为空
+    return p;
+}
+
+// 初始化PCB列表
+void init_pcb_list(PCB* pcb_list[], int n) {
+    for (int i = 0; i < n; i++) {
+        pcb_list[i] = create_pcb(i);
+    }
+}
+
+// 显示PCB信息
+void display_pcb(PCB* p) {  //调试用
+    printf("进程名: %s\n", p->PCB_NAME);
+    printf("进程状态: %d\n", p->PCB_STATUS);
+    printf("进程优先级: %d\n", p->PCB_PRIORITY);
+    printf("Process Execute Time: %d\n", p->PCB_EXECUTE_TIME);
+    printf("\n");
+}
+
+// 显示队列信息
+void display_queue(PCB* queue, int display_flag) {
+    if (queue == NULL) {
+        //printf("队列为空\n\n");
+        return;
+    }
+    // 遍历队列中的每个PCB，并输出相应的信息  
+    PCB* p = queue;
+    while (p != NULL) {
+        // 参数为0就是在执行过程中，只需要输出名字  
+        if (display_flag == 0) {
+            printf("%s ", p->PCB_NAME);
+        }
+        // FCFS或者是最短时间算法，输出PCB名字和执行时间 
+        else if (display_flag == 1 || display_flag == 3) {
+            printf("%s %dms, ", p->PCB_NAME, p->PCB_EXECUTE_TIME);
+        }
+        // 优先级算法输出优先级  
+        else if (display_flag == 2) {
+            printf("%s %d, ", p->PCB_NAME, p->PCB_PRIORITY);
+        }
+        p = p->next;
+    }
+    // 输出一条消息，表示队列已经处理完毕  
+    printf("\n");
+}
+
+
+// 将PCB加入队列尾
+void add_pcb_to_queue_tail(PCB** queue, PCB* p) {
+    // 如果队列为空，直接将p设置为队列的头
+    if (*queue == NULL) {
+        *queue = p;
+    }
+    else {
+        // 如果队列不为空，找到队列的尾节点，将p加入尾部
+        PCB* tail = *queue;
+        while (tail->next != NULL) {
+            tail = tail->next;
+        }
+        tail->next = p;
+    }
+}
+
+// 从队列头取出PCB并返回
+PCB* get_pcb_from_queue_head(PCB** queue) {
+    // 如果队列为空，直接返回NULL
+    if (*queue == NULL) {
+        return NULL;
+    }
+    PCB* p = *queue;
+    *queue = (*queue)->next;
+    // 将取出的PCB断开与队列的连接
+    p->next = NULL;
+    // 返回取出的PCB
+    return p;
+}
+
+
+// 从队列中移除PCB
+//   - queue: PCB类型的二级指针，表示队列的头指针的地址
+//   - p: PCB类型的指针，表示要移除的PCB
+//   - 移除成功返回1，失败返回0
+int remove_pcb_from_queue(PCB** queue, PCB* p) {
+    // 如果队列为空或要移除的PCB为空，返回0
+    if (*queue == NULL || p == NULL) {
+        return 0;
+    }
+
+    // 如果要移除的PCB是队列头，直接将头指针指向下一个节点
+    if (*queue == p) {
+        *queue = p->next;
+        return 1;
+    }
+
+    // 找到要移除的PCB的前一个节点和当前节点
+    PCB* prev_p = *queue;
+    PCB* current_p = prev_p->next;
+    while (current_p != NULL) {
+        if (current_p == p) {
+            // 将前一个节点的next指针指向要移除的PCB的下一个节点，即移除该PCB
+            prev_p->next = current_p->next;
+            return 1;
+        }
+        prev_p = current_p;
+        current_p = current_p->next;
+    }
+
+    // 如果没有找到要移除的PCB，返回0
+    return 0;
+}
+
+
+// 显示进程队列信息
+//   - display_flag: 整数类型，表示是否显示进程详细信息的标志位
+void show_queue(int display_flag) {
+    printf("所有进程一览: \n");
+    printf("就绪队列: ");
+    // 就绪队列为空
+    if (ready_queue == NULL)
+    {
+        printf(" \n");
+    }
+    // 否则，打印就绪队列的信息
+    display_queue(ready_queue, display_flag);
+    // 打印等待队列标题
+    printf("等待队列:");
+    // 等待队列为空
+    if (wait_queue == NULL)
+    {
+        printf(" \n");
+    }
+    // 否则，打印等待队列的信息
+    display_queue(wait_queue, display_flag);
+    system("pause");
+    printf("\n");
+    printf("\n*********************\n");
+}
+
+// 执行进程
+void execute_process(PCB* p) {
+    int display_flag = 0;
+    printf("当前执行进程:%s\n", p->PCB_NAME);
+    printf("当前就绪队列:");
+    if (ready_queue == NULL)
+    {
+        printf(" 空 \n");
+    }
+    display_queue(ready_queue, display_flag); // 显示就绪队列
+    printf("当前等待队列:");
+    if (wait_queue == NULL)
+    {
+        printf(" 空 \n");
+    }
+    display_queue(wait_queue, display_flag); // 显示等待队列
+
+    // 随机产生进程执行时间(200-1200)，表示单次执行的时间
+    int execute_time = rand() % 1000 + 200; //X + 200 
+    //Sleep(execute_time); //模拟执行过程
+
+    /*
+    *   下面这个第一段if似乎可以不用
+    *   但是调试的时候似乎有点问题
+    *   本着能动就别改，就留下了
+    */
+
+    if (p->PCB_EXECUTE_TIME == 0) {
+        printf("返回"); // 进程已经执行完毕，直接返回
+        return;
+    }
+    if (execute_time >= p->PCB_EXECUTE_TIME) { // 进程执行完毕
+        total_time += p->PCB_EXECUTE_TIME; // 累计总共执行的时间
+        Sleep(p->PCB_EXECUTE_TIME); // 模拟执行过程
+        printf("本次执行时间: %dms\n", p->PCB_EXECUTE_TIME);
+        p->PCB_EXECUTE_TIME = 0; // 将进程的剩余执行时间设置为0
+        printf("进程 %s 执行完毕\n*********************\n", p->PCB_NAME);
+        if (remove_pcb_from_queue(&ready_queue, p)) { // 从就绪队列移除PCB
+            free(p); // 释放PCB占用的内存
+            p = NULL;
+        }
+        else if (remove_pcb_from_queue(&wait_queue, p)) { // 从等待队列移除PCB
+            free(p); // 释放PCB占用的内存
+            p = NULL;
+        }
+    }
+    else { // 进程没有执行完毕
+        p->PCB_EXECUTE_TIME -= execute_time; // 减去本次执行的时间
+        total_time += execute_time; // 累计总共执行的时间
+        Sleep(execute_time); // 模拟执行过程
+        printf("本次执行时间: %dms\n", execute_time);
+        printf("进程 %s 剩余需要执行时间: %dms\n", p->PCB_NAME, p->PCB_EXECUTE_TIME);
+    }
+}
+
+
+void create_pcb()
+{
+    PCB* pcb_list[10]; // 定义PCB列表
+    init_pcb_list(pcb_list, 10); // 初始化PCB列表
+    for (int i = 0; i < 10; i++) { // 将就绪态的进程加入就绪队列
+        PCB* p = pcb_list[i];
+        if (p->PCB_STATUS == 1) { // 进程处于就绪态
+            add_pcb_to_queue_tail(&ready_queue, p); // 将PCB加入就绪队列尾
+        }
+        else if (p->PCB_STATUS == 0) { // 进程处于等待态
+            add_pcb_to_queue_tail(&wait_queue, p); // 将PCB加入等待队列尾
+        }
+    }
+}
+
+/******************************************/
+//  如果就绪队列和等待队列都有进程，
+//  那么会优先从就绪队列中选择一个进程来执行。
+//  等待队列中的进程只有在满足一定条件时才会被唤醒。
+//  因此，如果就绪队列和等待队列都有进程，
+//  那么根据产生随机数决定是否唤醒等待队列第一个
+/******************************************/
+
+/*
+*    执行进程
+*  （1）产生随机数，把等待队列头放到就绪队列尾。
+*  （2）产生执行时间，随机的。如果随机时间大于总的需要的时间，则执行完成。如果小于，则从总时间中减去执行时间。
+*  （3）如果没有执行完成，则产生随机数，根据产生的随机数把刚才执行进程放到就绪队列尾或者等待队尾。
+*/
+
+// 先进先出调度算法
+void fcfs() {
+    int display_flag = 1;
+    printf("*****先入先出算法*****\n\n");
+    create_pcb();
+    show_queue(display_flag);
+    while (ready_queue != NULL || wait_queue != NULL) { // 当就绪队列不为空时
+        //(1)
+        if (wait_queue != NULL) { // 如果等待队列不为空
+            int flag = rand() % 2;
+            if (flag == 0)
+            {
+                PCB* wp = get_pcb_from_queue_head(&wait_queue); // 从等待队列头取出PCB
+                wp->PCB_STATUS = 1; // 将PCB状态设置为就绪态
+                add_pcb_to_queue_tail(&ready_queue, wp); // 将PCB加入就绪队列尾
+            }
+        }
+        PCB* p = get_pcb_from_queue_head(&ready_queue); // 从就绪队列头取出PCB
+        execute_process(p); // 执行进程(2)
+        //printf("%d ", p->PCB_EXECUTE_TIME);
+        //(3)
+        if (p->PCB_EXECUTE_TIME != 0)
+        {
+            // 随机产生0或1，表示进程加入等待态还是就绪态，按照要求，0就绪:1等待
+            int flag = rand() % 2; 
+            if (flag == 0) { // 进程加入就绪态
+                printf("进程 %s 进入就绪队列\n*********************\n", p->PCB_NAME);
+                p->PCB_STATUS = 1; // 更新进程状态为就绪态
+                add_pcb_to_queue_tail(&ready_queue, p); // 将PCB加入就绪队列尾
+            }
+            else if (flag == 1) { // 进程加入等待态
+                printf("进程 %s 进入等待队列\n*********************\n", p->PCB_NAME);
+                p->PCB_STATUS = 0; // 更新进程状态为等待态
+                add_pcb_to_queue_tail(&wait_queue, p); // 将PCB加入等待队列尾
+            }
+        }
+        printf("耗费用时：%dms\n*********************\n", total_time);
+    }
+}
+
+
+// 基于优先数的调度算法
+void priority() {
+    int display_flag = 2;
+    printf("*****基于优先数的调度算法*****\n\n");
+    create_pcb();
+    show_queue(display_flag);
+
+    while (ready_queue != NULL || wait_queue != NULL) {
+        if (wait_queue != NULL) { // 如果等待队列不为空
+            int flag = rand() % 2;
+            if (flag == 0)
+            {
+                PCB* wp = get_pcb_from_queue_head(&wait_queue); // 从等待队列头取出PCB
+                wp->PCB_STATUS = 1; // 将PCB状态设置为就绪态
+                add_pcb_to_queue_tail(&ready_queue, wp); // 将PCB加入就绪队列尾
+            }
+        }
+        if (ready_queue != NULL)
+        {
+            PCB* p = ready_queue; // 从就绪队列中选出优先级最高的PCB
+            PCB* q = ready_queue->next;
+            while (q != NULL) {
+                if (q->PCB_PRIORITY > p->PCB_PRIORITY) {
+                    p = q;
+                }
+                q = q->next;
+            }
+            if (p == ready_queue) { // 就绪队列头是优先级最高的PCB
+                ready_queue = ready_queue->next;
+            }
+            else { // 优先级最高的PCB不在就绪队列头
+                q = ready_queue;
+                while (q->next != p) {
+                    q = q->next;
+                }
+                q->next = p->next;
+            }
+
+            execute_process(p); // 执行进程
+            if (p->PCB_EXECUTE_TIME != 0)
+            {
+                int flag = rand() % 2; // 随机产生0或1，0就绪:1等待
+                if (flag == 0) { // 进程加入就绪态
+                    printf("进程 %s 进入就绪队列\n*********************\n", p->PCB_NAME);
+                    p->PCB_STATUS = 1;
+                    add_pcb_to_queue_tail(&ready_queue, p);
+                    p->next = NULL;
+                }
+                else if (flag == 1) { // 进程加入等待态
+                    printf("进程 %s 进入等待队列\n*********************\n", p->PCB_NAME);
+                    p->PCB_STATUS = 0; // 更新进程状态为等待态
+                        add_pcb_to_queue_tail(&wait_queue, p); // 将PCB加入等待队列尾
+
+                    p->next = NULL;
+                }
+            }
+            printf("耗费用时：%dms\n*********************\n", total_time);
+        }
+    }
+}
+
+// 最短执行时间调度算法
+void shortest() {
+    int display_flag = 3;
+    printf("*****最短执行时间调度算法*****\n\n");
+    create_pcb();
+    show_queue(display_flag);
+
+    while (ready_queue != NULL || wait_queue != NULL) {
+        if (wait_queue != NULL) { // 如果等待队列不为空
+            int flag = rand() % 2;
+            if (flag == 0)
+            {
+                PCB* wp = get_pcb_from_queue_head(&wait_queue); // 从等待队列头取出PCB
+                wp->PCB_STATUS = 1; // 将PCB状态设置为就绪态
+                add_pcb_to_queue_tail(&ready_queue, wp); // 将PCB加入就绪队列尾
+            }
+        }
+        if (ready_queue != NULL) {
+            PCB* p = ready_queue; // 从就绪队列中选出预计时间最短的PCB
+            PCB* q = ready_queue->next;
+            while (q != NULL) {
+                if (q->PCB_EXECUTE_TIME < p->PCB_EXECUTE_TIME) {
+                    p = q;
+                }
+                q = q->next;
+            }
+            if (p == ready_queue) { // 就绪队列头是预计时间最短的PCB
+                ready_queue = ready_queue->next;
+            }
+            else { // 预计时间最短的PCB不在就绪队列头
+                q = ready_queue;
+                while (q->next != p) {
+                    q = q->next;
+                }
+                q->next = p->next;
+            }
+            execute_process(p); // 执行进程
+            if (p->PCB_EXECUTE_TIME != 0)
+            {
+                int flag = rand() % 2; 
+                if (flag == 0) { // 进程加入就绪态
+                    printf("进程 %s 进入就绪队列\n*********************\n", p->PCB_NAME);
+                    p->PCB_STATUS = 1;
+                    add_pcb_to_queue_tail(&ready_queue, p);
+                    p->next = NULL;
+                }
+                else if (flag == 1) { // 进程加入等待态
+                    printf("进程 %s 进入等待队列\n*********************\n", p->PCB_NAME);
+                    p->PCB_STATUS = 0; // 更新进程状态为等待态
+                    add_pcb_to_queue_tail(&wait_queue, p); // 将PCB加入等待队列尾
+                    p->next = NULL;
+                }
+            }
+            printf("耗费用时：%dms\n*********************\n", total_time);
+        }
+    }
+}
+
+//输出执行时间并询问是否继续
+void print_execution_time(const char* algorithm_name, int total_time) {
+    printf("%s执行时间: %dms\n\n", algorithm_name, total_time);
+    printf("CONTINUE?[1]");
+    int cs1;
+    scanf("%d", &cs1);
+    if (cs1 != 1) {
+        exit(0);
+    }
+}
+
+int main() {
+    bool continue_program = true;
+    srand((unsigned int)time(NULL)); // 初始化随机数种子
+    while (continue_program) {
+        printf("1:先入先出 | 2:基于优先级 | 3:基于最短时间\n");
+        int cs;
+        scanf("%d", &cs);
+        system("cls");
+        total_time = 0; // 重新初始化总执行时间
+        wait_queue = NULL; // 清空等待队列
+        ready_queue = NULL; // 清空就绪队列
+        switch (cs) {
+        case 1:
+            fcfs(); // 先进先出调度算法
+            print_execution_time("FCFS", total_time);
+            break;
+        case 2:
+            priority();
+            print_execution_time("基于优先数算法", total_time);
+            break;
+        case 3:
+            shortest(); // 最短执行时间调度算法
+            print_execution_time("最短执行时间算法", total_time);
+            break;
+        default:
+            printf("ERROR!CONTINUE? [1]");
+            int cs1;
+            scanf("%d", &cs1);
+            if (cs1 != 1) {
+                continue_program = false;
+            }
+            break;
+        }
+    }
+    return 0;
+}
