@@ -1,0 +1,386 @@
+#include<stdio.h>
+#include<stdlib.h>
+#include<Windows.h>
+#include<time.h>
+
+#define n 10						//假定系统允许的最大作业数量为n
+#define MAX_FREE_TABLE_COUNT 10						//假定系统允许的空闲区表最大为m
+#define TOTAL_MEMORY_SIZE 1024							//总内存
+// 已分配区表的定义：
+struct UsedTable {
+	float address; // 已分分区起始地址
+	float length; // 已分分区长度，单位为字节
+	int flag; // 已分配表区登记栏标志，用0表示空
+} used_table[n]; // 已分配区表 
+
+// 空闲区表的定义：
+struct FreeTable {
+	float address; // 空闲区起始地址
+	float length; // 空闲区长度，单位为字节
+	int flag; // 空闲区表登记栏目用0表示空，1表示未分配
+} free_table[MAX_FREE_TABLE_COUNT]; // 空闲区表
+
+// 作业队列的定义：
+struct Job {
+	int job_index; // 作业名
+	float job_size; // 作业大小
+	int flag; // 0未分配, 1已分配, 2已完成
+} job[n];
+
+
+//函数的声明
+void FirstFit();
+void InitializeMemoryTables();
+void InitializeJobQueue();
+void DisplayMemoryTables();
+void DisplayJobQueue();
+int AllocateMemory(int job_index, float job_size);
+
+//下列函数是回收算法需要用到的函数
+int FindAllocatedJobIndex(int job_index);
+int FindFreeTable();
+void FreeAllocatedToFree(int key, int key2);
+void FreeAllocatedToLowerFreeTable(int key2);
+void MergeUpperFreeTable(int key);
+void MergeLowerFreeTable(int key);
+void SortFreeTable();
+void ReclaimMemory(int job_index);
+
+
+int main()
+{
+	srand((int)time(NULL));
+	FirstFit();					//最先适应算法
+	return 0;
+}
+void FirstFit()
+{
+	printf("*****************************\n");
+	printf("********最先适应算法*********\n");
+	printf("*****************************\n\n");
+	InitializeMemoryTables();
+	InitializeJobQueue();
+	DisplayMemoryTables();
+	DisplayJobQueue();
+	printf("\n");
+	system("pause");
+	int i, num = 10;
+	while (num > 0)
+	{
+		printf(">分配<\n\n");
+		for (i = 0; i < 10; i++)
+		{
+			if (job[i].flag == 0)
+			{
+				printf("作业%d未分配，大小为%0.f\n", job[i].job_index, job[i].job_size);
+				if (AllocateMemory(job[i].job_index, job[i].job_size) == 1)
+				{
+					printf("=>分配成功\n");
+					job[i].flag = 1;
+					num--;
+					//DisplayMemoryTables();
+					//DisplayJobQueue();
+				}
+				else
+				{
+					printf("=>空间不足\n");
+				}
+			}
+		}
+
+		DisplayMemoryTables();
+		DisplayJobQueue();
+		if (num == 0)
+		{
+			printf("=>全部作业分配完成 (∠丶ω< )⌒☆！\n");
+			system("pause");
+			break;
+		}
+		printf(">回收<\n\n");
+		int choice;
+		for (i = 0; i < 10; i++)
+		{
+			if (job[i].flag == 1)
+			{
+				choice = rand() % 2;
+				if (choice == 1)
+				{
+					printf("随机数%d,回收作业%d\n", choice, job[i].job_index);
+					ReclaimMemory(job[i].job_index);
+					job[i].flag = 3;
+					//DisplayMemoryTables();
+					//DisplayJobQueue();
+				}
+				//else
+				//{
+				//}
+			}
+
+		}
+
+		DisplayMemoryTables();
+		DisplayJobQueue();
+	}
+}
+void InitializeMemoryTables()
+{
+	int i;
+	// 初始化已分配表
+	for (i = 0; i < n; i++)
+	{
+		used_table[i].flag = 0; // 将已分配表中所有条目的标记设置为未使用
+	}
+	// 初始化空闲表
+	free_table[0].address = 0; // 第一块空闲区的起始地址为 0
+	free_table[0].length = TOTAL_MEMORY_SIZE / 512; // 第一块空闲区的长度为总内存大小除以 512（每块大小）
+	free_table[0].flag = 1; // 将第一块空闲区标记为1
+	free_table[1].address = TOTAL_MEMORY_SIZE / 512; // 第二块空闲区的起始地址为总内存大小除以 512
+	free_table[1].length = TOTAL_MEMORY_SIZE / 512; // 第二块空闲区的长度为总内存大小除以 512
+	free_table[1].flag = 1; // 将第二块空闲区标记为1
+	// 初始化剩余空闲区
+	for (i = 2; i < MAX_FREE_TABLE_COUNT; i++)
+	{
+		free_table[i].address = free_table[i - 1].address + free_table[i - 1].length; // 计算当前空闲区的起始地址
+		free_table[i].length = free_table[i - 1].length * 2; // 计算当前空闲区的长度为前一个空闲区的长度的两倍
+		free_table[i].flag = 1; // 将当前空闲区标记为1
+	}
+}
+void InitializeJobQueue()
+{
+	for (int i = 0; i < 10; i++)
+	{
+		job[i].job_index = i + 1;														//作业名：
+		job[i].job_size = rand() % (TOTAL_MEMORY_SIZE / 4) + 1;											//大小
+		job[i].flag = 0;															//状态：0未分配，1已分配，2已结束
+	}
+}
+
+//输出空闲区表和已分配区表
+void DisplayMemoryTables() {
+	int i, j;
+	printf("--------------------------------\n");
+	printf("|         =>空闲区表<=         |\n");
+	printf("--------------------------------\n");
+	printf("|索引\t地址\t大小\t状态   |\n");
+	printf("--------------------------------\n");
+	for (i = 0; i < MAX_FREE_TABLE_COUNT; i++) {
+		if (free_table[i].flag == 1) { // 2种状态
+			printf("|%d\t%0.f\t%0.f\t空闲   |\n", i + 1, 
+				free_table[i].address, free_table[i].length);
+		}
+		else {
+			printf("|%d\tNull\tNull\t空     |\n", i + 1);
+		}
+	}
+	printf("--------------------------------\n\n");
+	printf("--------------------------------\n");
+	printf("|         =>已分配表<=         |\n");
+	printf("--------------------------------\n");
+	printf("|索引\t地址\t大小\t状态   |\n");
+	printf("--------------------------------\n");
+	for (j = 0; j < n; j++) {
+		if (used_table[j].flag == 0) { // 2种状态
+			printf("|%d\tNull\tNull\t空     |\n", j + 1);
+		}
+		else {
+			printf("|%d\t%0.f\t%0.f\t已分配 |\n", j + 1, 
+				used_table[j].address, used_table[j].length);
+		}
+	}
+	printf("--------------------------------\n\n");
+}
+
+//输出作业队列
+void DisplayJobQueue() {
+	printf("-------------------------\n");
+	printf("|       =>作业<=        |\n-------------------------\n");
+	printf("|作业号\t大小\t状态    |");
+	printf("\n-------------------------\n");
+	for (int i = 0; i < 10; i++)
+	{
+		//cout << job[i].job_index << "\t" << job[i].job_size;
+		printf("|%d\t%0.f", job[i].job_index, job[i].job_size);
+		if (job[i].flag == 0)
+		{
+			printf("\t未分配  |\n");
+		}
+		else if (job[i].flag == 1)
+		{
+			printf("\t已分配  |\n");
+		}
+		else
+		{
+			printf("\t已完成  |\n");
+		}
+	}
+	printf("-------------------------\n\n");
+}
+
+//寻找并分配空闲区
+int AllocateMemory(int job_index, float job_size) {
+	int find = 0; // 标记是否找到合适的空闲区
+	int i, j;
+	// 遍历空闲区表
+	for (i = 0; i < MAX_FREE_TABLE_COUNT; i++) {
+		if (free_table[i].length < job_size) { // 如果当前空闲区的长度小于要求的作业大小
+			// 继续查找下一个空闲区
+		}
+		// 如果当前空闲区的长度等于要求的作业大小
+		else if (free_table[i].length == job_size) { 
+			// 将当前空闲区分配给作业
+			for (j = 0; j < n; j++) {
+				if (used_table[j].flag == 0) { // 如果找到一个未使用的已分配表条目
+					// 将作业的起始地址设置为当前空闲区的起始地址
+					used_table[j].address = free_table[i].address; 
+					used_table[j].length = job_size; // 将作业的长度设置为要求的作业大小
+					used_table[j].flag = job_index; // 将已分配表的标记设置为作业的索引
+					break; // 退出循环
+				}
+			}
+			// 将当前空闲区从空闲区表中删除
+			for (j = i; j <= MAX_FREE_TABLE_COUNT - 2; j++) {
+				free_table[j] = free_table[j + 1]; // 将后面的空闲区向前移动一位
+			}
+			// 将空闲区表的最后一项标记为未使用
+			free_table[MAX_FREE_TABLE_COUNT - 1].flag = 0; 
+			find = 1; // 标记已找到合适的空闲区
+			break; // 退出循环
+		}
+		else { // 如果当前空闲区的长度大于要求的作业大小
+			// 将当前空闲区一部分分配给作业，另一部分保留为新的空闲区
+			for (j = 0; j < n; j++) {
+				if (used_table[j].flag == 0) { // 如果找到一个未使用的已分配表条目
+					// 将作业的起始地址设置为当前空闲区的起始地址
+					used_table[j].address = free_table[i].address; 
+					used_table[j].length = job_size; // 将作业的长度设置为要求的作业大小
+					used_table[j].flag = job_index; // 将已分配表的标记设置为作业的索引
+					break; // 退出循环
+				}
+			}
+			free_table[i].address += job_size; // 更新当前空闲区的起始地址
+			free_table[i].length -= job_size; // 更新当前空闲区的长度
+			find = 1; // 标记已找到合适的空闲区
+			break; // 退出循环
+		}
+	}
+	return find; // 返回标记
+}
+
+// 该函数的作用是回收已分配的空间，将其加入空闲表中
+void ReclaimMemory(int job_index) {
+	int key = -1; // 初始化空闲表索引为-1
+	int key2 = FindAllocatedJobIndex(job_index); // 查找已分配表中指定作业索引的索引
+	if (key2 != -1) { // 如果找到了已分配区
+		key = FindFreeTable(); // 查找空闲表中可用的索引
+		if (key != -1) { // 如果找到了空闲区
+			FreeAllocatedToFree(key, key2); // 将已分配区的空间释放并加入空闲表中
+			MergeUpperFreeTable(key); // 将上方相邻空闲区合并
+			MergeLowerFreeTable(key); // 将下方相邻空闲区合并
+		}
+		else { // 如果没有找到空闲区
+			FreeAllocatedToLowerFreeTable(key2); // 将已分配区的空间释放并加入下方空闲区中
+			MergeLowerFreeTable(key2); // 将下方相邻空闲区合并
+		}
+		SortFreeTable(); // 对空闲表进行排序
+	}
+}
+
+// 该函数的作用是在已分配表中查找指定作业索引的索引
+int FindAllocatedJobIndex(int job_index) {
+	for (int i = 0; i < n; i++) { // 遍历已分配表
+		// 如果该元素已分配且作业索引符合要求
+		if (job[i].flag == 1 && job[i].job_index == job_index) { 
+			return i; // 返回该元素的索引
+		}
+	}
+	return -1; // 如果没找到，返回-1
+}
+
+// 该函数的作用是在空闲表中查找可用的索引
+int FindFreeTable() {
+	for (int i = 0; i < MAX_FREE_TABLE_COUNT; i++) { // 遍历空闲表
+		if (free_table[i].flag == 0) { // 如果该元素未被分配
+			return i; // 返回该元素的索引
+		}
+	}
+	return -1; // 如果没找到，返回-1
+}
+
+// 该函数的作用是将已分配的空间释放并加入空闲表中
+void FreeAllocatedToFree(int key, int key2) {
+	// 把已分配表中的该元素的地址赋值给空闲表中的该元素
+	free_table[key].address = used_table[key2].address; 
+	// 把已分配表中的该元素的长度赋值给空闲表中的该元素
+	free_table[key].length = used_table[key2].length; 
+	free_table[key].flag = 1; // 将空闲表中的该元素的标志位置为1，表示该空间已经被释放
+	used_table[key2].flag = 0; // 将已分配表中的该元素的标志位设为0，表示该空间已经空闲
+}
+
+// 该函数的作用是将已分配的空间释放并加入下方空闲区中
+void FreeAllocatedToLowerFreeTable(int key2) {
+	int i;
+	for (i = 0; i < MAX_FREE_TABLE_COUNT; i++) { // 遍历空闲表
+		if (free_table[i].flag == 0) { // 如果该元素未被分配
+			// 把已分配表中的该元素的地址赋值给空闲表中的该元素
+			free_table[i].address = used_table[key2].address; 
+			// 把已分配表中的该元素的长度赋值给空闲表中的该元素
+			free_table[i].length = used_table[key2].length; 
+			// 将空闲表中的该元素的标志位置为1，表示该空间已经被释放
+			free_table[i].flag = 1; 
+			// 将已分配表中的该元素的标志位设为0，表示该空间已经空闲
+			used_table[key2].flag = 0; 
+			break; // 找到可用的索引后，退出循环
+		}
+	}
+}
+
+// 该函数的作用是将上方相邻空闲区合并
+void MergeUpperFreeTable(int key) {
+	int i;
+	for (i = 0; i < MAX_FREE_TABLE_COUNT; i++) { // 遍历空闲表
+		// 如果该元素是空闲区且与该空闲区上方相邻
+		if (free_table[i].flag == 1 && free_table[i].address + 
+				free_table[i].length == free_table[key].address) { 
+			// 将该空闲区的长度加入相邻空闲区
+			free_table[i].length += free_table[key].length;
+			free_table[key].flag = 0; // 将该空闲区标志位置为0，表示该空间已被合并
+			key = i; // 将当前空闲区索引设为相邻空闲区索引，继续合并
+			break; // 找到相邻空闲区后，退出循环
+		}
+	}
+}
+
+// 该函数的作用是将下方相邻空闲区合并
+void MergeLowerFreeTable(int key) {
+	int i;
+	for (i = 0; i < MAX_FREE_TABLE_COUNT; i++) { // 遍历空闲表
+		// 如果该元素是空闲区且与该已分配区下方相邻
+		if (free_table[i].flag == 1 && free_table[i].address + 
+				free_table[i].length == used_table[key].address) { 
+			// 将该已分配区的长度加入相邻空闲区
+			free_table[i].length += used_table[key].length;
+			break; // 找到相邻空闲区后，退出循环
+		}
+	}
+}
+
+// 该函数的作用是对空闲表进行排序
+void SortFreeTable() {
+	int i, j;
+	for (i = 0; i < MAX_FREE_TABLE_COUNT - 1; i++) { // 遍历空闲表
+		if (free_table[i].flag && free_table[i + 1].flag) { // 如果相邻两个元素都是空闲区
+			// 如果前一个元素的地址大于后一个元素的地址
+			if (free_table[i].address > free_table[i + 1].address) { 
+				int add = free_table[i].address; // 交换两个元素的地址
+				free_table[i].address = free_table[i + 1].address;
+				free_table[i + 1].address = add;
+				int len = free_table[i].length; // 交换两个元素的长度
+				free_table[i].length = free_table[i + 1].length;
+				free_table[i + 1].length = len;
+			}
+		}
+		else { // 如果已经找不到空闲区，退出循环
+			break;
+		}
+	}
+}
