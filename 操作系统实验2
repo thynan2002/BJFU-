@@ -1,0 +1,261 @@
+#include<stdio.h>
+#include<stdlib.h>
+#include<Windows.h>
+
+#define BUFFERSIZE 3
+typedef struct PCB
+{
+	int PCB_TYPE;					//进程类型标号 flag=0生产者，flag=1消费者
+	int PCB_SYSTEMID;					//进程系统号
+	char PCB_STATUS;				//进程状态 R就绪 W等待 F完成
+	char PRODUCT_NAME[20];				//进程产品名
+	struct PCB* next;			//进程链指针
+}PCB, * pcb;
+
+
+int in = 0;						//放入缓冲区指针
+int out = 0;					//取走缓冲区指针
+int product_num = 0;             //产品数
+int full = 0;					//信号量full
+int mutex = 1;					//互斥信号量，确保唯一操作
+pcb p;							//就绪队头进程
+pcb ready_queue, ready_queue_tail;			//就绪队列，头尾指针	
+pcb producer_queue, producer_queue_tail;		//生产者等待队列，头尾指针
+pcb consumer_queue, consumer_queue_tail;		//消费者等待队列，头尾指针	
+pcb over_queue, over_queue_tail;				//完成队列，头尾指针
+pcb pop(pcb& head, pcb& tail);	//队头进程出队
+
+void create_process();					//创建进程
+void init(pcb& head);		//创建链队列
+void show_process(pcb processhead);	//输出进程
+void push(pcb p, pcb& tail);		//进程入队尾
+int P(int& s);					//P操作
+int V(int& s);					//V操作
+void wake_consumer_process();			//唤醒生产者			
+void wake_producer_process();			//唤醒消费者
+
+
+void init(pcb& head)		//创建链队列
+{
+	head = new PCB;				//分配内存
+	head->next = NULL;	
+}
+void show_process(pcb processhead)	//显示队列中的所有进程
+{
+	if (processhead->next)
+	{
+		pcb p = processhead->next;
+		printf("v");
+		while (p)
+		{
+			printf("\n进程[%d]     类型[%d]\t进程号[%d]\t状态[%c]",
+				p->PCB_SYSTEMID, p->PCB_TYPE, p->PCB_SYSTEMID, p->PCB_STATUS);
+			p = p->next;
+		}
+	}
+	else
+	{
+		printf("=>空");
+	}
+}
+
+void show_process2(pcb processhead,int a) {
+	if (processhead->next)
+	{
+		pcb p = processhead->next;
+		while (p)
+		{
+			if (a == 1) {
+				printf("[%d]", p->PCB_SYSTEMID);
+				p = p->next;
+			}
+			else if (a == 2) {
+				printf("[%d,%d]",p->PCB_SYSTEMID, p->PCB_TYPE);
+				p = p->next;
+			}
+		}
+	}
+	else
+	{
+		printf("=>空");
+	}
+}
+void push(pcb p, pcb& tail)		//进程入队尾
+{
+	tail->next = p;				//进程入队尾
+	p->next = NULL;				//处理指针域
+	tail = tail->next;			//更新尾指针
+}
+pcb pop(pcb& head, pcb& tail)	//队头出进程
+{
+	pcb p = head->next;			//队头出进程
+	head->next = head->next->next;//更新头指针	
+	if (head->next == NULL)		//判断是否更新尾指针
+		tail = head;
+	return p;					//返回队头进程
+}
+
+int index = 0;
+void create_process()					//创建进程
+{
+	//队列初始化
+	init(ready_queue);				//就绪队列
+	init(producer_queue);			//生产者等待队列
+	init(consumer_queue);			//消费者等待队列
+	init(over_queue);				//完成队列
+
+	ready_queue_tail = ready_queue;		//尾指针
+	producer_queue_tail = producer_queue;//尾指针
+	consumer_queue_tail = consumer_queue;//尾指针
+	over_queue_tail = over_queue;		//尾指针	
+	//*************************************//
+	printf("开始创建进程\n");
+	int i = 0;
+	while (1) {
+		pcb p = new PCB;			//分配内存 
+		p->PCB_SYSTEMID = i + 1;	//进程号
+		p->PCB_STATUS = 'R';
+		p->next = NULL;				//处理尾指针	
+		int process_type = -1;
+		printf("第%d个进程，生产者[1]还是消费者[2]？",i+1);
+		scanf("%d", &process_type); getchar();
+		if (process_type == 1) {
+			p->PCB_TYPE = 0;
+		}
+		else if (process_type == 2) {
+			p->PCB_TYPE = 1;
+		}
+		else {
+			break;
+		}
+		push(p, ready_queue_tail);
+		printf("创建成功，是否继续[y]?");
+		char goon = 'n'; scanf("%c", &goon);
+		if (goon != 'y') {
+			break;
+		}
+		i++;
+	}
+		
+	printf("\n#########就绪队列##########\n");
+	show_process(ready_queue);
+	printf("\n------------------------------------------------\n");
+}
+int P(int& s)					//P操作
+{
+	if (s >= 1)
+	{
+		s = s - 1;
+		return s;
+	}
+	else
+		return -1;
+}
+int V(int& s)					//V操作
+{
+	s = s + 1;
+	return s;
+}
+void wake_consumer_process()
+{
+	if (consumer_queue->next != NULL)			//队列不空才能唤醒
+	{
+		p = pop(consumer_queue, consumer_queue_tail);	//等待队头出进程
+		push(p, ready_queue_tail);				//就绪队尾入进程
+		p->PCB_STATUS = 'R';
+		printf("**唤醒消费者[%d]进入就绪队尾\n", p->PCB_SYSTEMID);
+		printf("当前就绪队列序列=>"); show_process2(ready_queue,1);
+		printf("\n");
+	}
+	else
+		printf("**消费者等待队列空\n");
+}
+void wake_producer_process()
+{
+	if (producer_queue->next != NULL)			//队列不空才能唤醒
+	{
+		p = pop(producer_queue, producer_queue_tail);	//等待队头出进程
+		push(p, ready_queue_tail);
+		p->PCB_STATUS = 'R';
+		printf("**唤醒生产者[%d]进入就绪队尾\n", p->PCB_SYSTEMID);
+		printf("当前就绪队列=>"); show_process2(ready_queue,2);
+		printf("\n");
+	}
+	else
+		printf("**生产者等待队列空\n");
+}
+
+void execute_process(int empty, char*buffer) {
+	while (ready_queue->next != NULL) { // 就绪队列不为空
+		p = pop(ready_queue, ready_queue_tail); // 就绪队头出队
+		if (p->PCB_TYPE == 0) { // 生产者进程
+			if (P(empty) >= 0 && P(mutex) >= 0) { // P操作申请临界资源，继续执行或等待
+				buffer[in] = p->PCB_SYSTEMID; // 缓冲区:填写id号码
+				product_num++; // 缓冲区产品数目加1
+				in++; // 放入缓冲区指针加1
+				in = in % BUFFERSIZE;
+
+				push(p, over_queue_tail); // 完成队尾入队
+				p->PCB_STATUS = 'F'; // 修改进程状态
+				printf("*生产者[%d]生产产品，缓冲区数量为[%d]，生产者over\n",
+					p->PCB_SYSTEMID, product_num);
+
+				V(mutex);
+				V(full); // V操作
+				wake_consumer_process(); // 唤醒消费者
+			}
+			else { // 本进程等待
+				printf("*缓冲区满，生产者[%d]进入等待队列\n", p->PCB_SYSTEMID);
+				push(p, producer_queue_tail); // 生产者队尾入队
+				p->PCB_STATUS = 'W'; // 修改进程状态
+			}
+		}
+		else { // 消费者进程
+			if (P(full) >= 0 && P(mutex) >= 0) { // P操作，继续执行，否则等待
+				int goods;
+				goods = buffer[out]; // 缓冲区:填产品名字
+				product_num--; // 缓冲区产品数目减1
+				out++; // 取走缓冲区指针加1
+				out = out % BUFFERSIZE;
+
+				push(p, over_queue_tail); // 完成队尾入队
+				p->PCB_STATUS = 'F'; // 修改进程状态
+				printf("*消费者[%d]消费产品，缓冲区数量为[%d]，消费者over\n", 
+					p->PCB_SYSTEMID, product_num);
+
+				V(mutex);
+				V(empty); // V操作
+				wake_producer_process(); // 唤醒生产者
+			}
+			else { // 本进程等待
+				printf("*缓冲区空，消费者[%d]进入等待队列", p->PCB_SYSTEMID);
+				push(p, consumer_queue_tail); // 消费者队尾入队
+				p->PCB_STATUS = 'W'; // 修改进程状态
+			}
+			printf("\n");
+			printf("生产者等待队列=>"); show_process2(producer_queue, 1);
+			printf("\n消费者等待队列=>"); show_process2(consumer_queue, 1);
+			printf("\nover队列=>"); show_process2(over_queue, 1);
+			printf("\n");
+		}
+		printf("------------------------------------------------\n");
+	}
+}
+
+int main()
+{
+
+	char buffer[BUFFERSIZE];	// 缓冲区:填进程id
+	int empty = BUFFERSIZE;		// 信号量empty
+
+	while (1) {
+		create_process(); // 创建进程
+		execute_process(empty,buffer);//运行
+		int a = -1;
+		printf("继续？[1]"); scanf("%d", &a);
+		if (a != 1) {
+			exit(0);
+		}
+	}
+	return 0;
+}
